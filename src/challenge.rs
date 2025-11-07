@@ -51,16 +51,13 @@ fn parse_temperature(bytes: &[u8]) -> i32 {
         i = 1;
     }
 
-    // Parse digits before decimal
     while i < bytes.len() && bytes[i] != b'.' {
         value = value * 10 + (bytes[i] - b'0') as i32;
         i += 1;
     }
 
-    // Skip '.'
     i += 1;
 
-    // Parse single digit after decimal
     if i < bytes.len() {
         value = value * 10 + (bytes[i] - b'0') as i32;
     }
@@ -82,7 +79,7 @@ fn main() {
     let num_threads = rayon::current_num_threads();
     let chunk_size = mmap.len() / num_threads;
 
-    let results: Vec<FxHashMap<Box<str>, Statistic>> = (0..num_threads)
+    let hash_map: FxHashMap<Box<str>, Statistic> = (0..num_threads)
         .into_par_iter()
         .map(|thread_id| {
             let mut start = thread_id * chunk_size;
@@ -127,17 +124,17 @@ fn main() {
 
             local_map
         })
-        .collect();
-
-    let mut hash_map: FxHashMap<Box<str>, Statistic> = FxHashMap::default();
-    for local_map in results {
-        for (station, stats) in local_map {
-            hash_map
-                .entry(station)
-                .and_modify(|existing| existing.merge(&stats))
-                .or_insert(stats);
-        }
-    }
+        .reduce(
+            || FxHashMap::default(),
+            |mut map1, map2| {
+                for (station, stats) in map2 {
+                    map1.entry(station)
+                        .and_modify(|existing| existing.merge(&stats))
+                        .or_insert(stats);
+                }
+                map1
+            }
+        );
 
     let mut sorted: Vec<_> = hash_map.into_iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
