@@ -3,6 +3,7 @@ use std::time::Instant;
 use memmap2::Mmap;
 use rayon::prelude::*;
 use rustc_hash::FxHashMap;
+use memchr::{memchr, memchr_iter};
 
 struct Statistic {
     min: i32,
@@ -105,24 +106,22 @@ fn main() {
 
             let mut local_map: FxHashMap<Box<str>, Statistic> = FxHashMap::default();
             let data = &mmap[start..end];
-            let mut line_start = 0;
 
-            for i in 0..data.len() {
-                if data[i] == b'\n' {
-                    let line = &data[line_start..i];
-                    line_start = i + 1;
+            let mut prev_pos = 0;
+            for newline_pos in memchr_iter(b'\n', data) {
+                let line = &data[prev_pos..newline_pos];
+                prev_pos = newline_pos + 1;
 
-                    if let Some(semicolon_pos) = line.iter().position(|&b| b == b';') {
-                        let station = std::str::from_utf8(&line[..semicolon_pos]).unwrap();
-                        let temp_bytes = &line[semicolon_pos + 1..];
-                        let value = parse_temperature(temp_bytes);
+                if let Some(semicolon_pos) = memchr(b';', line) {
+                    let station = std::str::from_utf8(&line[..semicolon_pos]).unwrap();
+                    let temp_bytes = &line[semicolon_pos + 1..];
+                    let value = parse_temperature(temp_bytes);
 
-                        let statistic = local_map
-                            .entry(station.into())
-                            .or_insert_with(Statistic::new);
+                    let statistic = local_map
+                        .entry(station.into())
+                        .or_insert_with(Statistic::new);
 
-                        statistic.add(value);
-                    }
+                    statistic.add(value);
                 }
             }
 
