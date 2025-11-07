@@ -23,7 +23,7 @@ fn main() {
 
     let mut rng = rand::rng();
 
-    for _ in 0..10_000_000 {
+    for _ in 0..1_000_000_000 {
         let (station, mean_temp) = &stations[rng.random_range(0..stations.len())];
         let temp = mean_temp + rng.random_range(-15.0..15.0);
         writeln!(writer, "{};{:.1}", station, temp).unwrap();

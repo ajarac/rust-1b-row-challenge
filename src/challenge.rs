@@ -1,8 +1,8 @@
-use memmap2::Mmap;
 use std::collections::HashMap;
 use std::fs::File;
-use std::str::from_utf8;
 use std::time::Instant;
+use memmap2::Mmap;
+use rayon::prelude::*;
 
 struct Statistic {
     min: f64,
@@ -31,6 +31,13 @@ impl Statistic {
         self.sum += value;
         self.counter += 1;
     }
+
+    pub fn merge(&mut self, other: &Statistic) {
+        self.min = self.min.min(other.min);
+        self.max = self.max.max(other.max);
+        self.sum += other.sum;
+        self.counter += other.counter;
+    }
 }
 
 fn main() {
@@ -40,27 +47,67 @@ fn main() {
     let file = File::open(filename).expect("file not found");
     let mmap = unsafe { Mmap::map(&file).expect("failed to mmap file") };
 
-    let mut hash_map: HashMap<String, Statistic> = HashMap::new();
+    let num_threads = rayon::current_num_threads();
+    let chunk_size = mmap.len() / num_threads;
 
-    let data = &mmap[..];
-    let mut line_start = 0;
+    let results: Vec<HashMap<String, Statistic>> = (0..num_threads)
+        .into_par_iter()
+        .map(|thread_id| {
+            let mut start = thread_id * chunk_size;
 
-    for i in 0..data.len() {
-        if data[i] == b'\n' {
-            let line = &data[line_start..i];
-            line_start = i + 1;
-
-            if let Some(semicolon_pos) = line.iter().position(|&b| b == b';') {
-                let station = from_utf8(&line[..semicolon_pos]).unwrap();
-                let temp_str = from_utf8(&line[semicolon_pos + 1..]).unwrap();
-                let value: f64 = temp_str.parse().unwrap_or(0.0);
-
-                let statistic = hash_map
-                    .entry(station.to_string())
-                    .or_insert_with(Statistic::new);
-
-                statistic.add(value);
+            // Align to next newline (except for first thread)
+            if start != 0 {
+                while start < mmap.len() && mmap[start] != b'\n' {
+                    start += 1;
+                }
+                start += 1;
             }
+
+            let end = if thread_id == num_threads - 1 {
+                mmap.len()
+            } else {
+                let mut e = (thread_id + 1) * chunk_size;
+                while e < mmap.len() && mmap[e] != b'\n' {
+                    e += 1;
+                }
+                e + 1
+            };
+
+            let mut local_map: HashMap<String, Statistic> = HashMap::new();
+            let data = &mmap[start..end];
+            let mut line_start = 0;
+
+            for i in 0..data.len() {
+                if data[i] == b'\n' {
+                    let line = &data[line_start..i];
+                    line_start = i + 1;
+
+                    if let Some(semicolon_pos) = line.iter().position(|&b| b == b';') {
+                        let station = std::str::from_utf8(&line[..semicolon_pos]).unwrap();
+                        let temp_str = std::str::from_utf8(&line[semicolon_pos + 1..]).unwrap();
+                        let value: f64 = temp_str.parse().unwrap_or(0.0);
+
+                        let statistic = local_map
+                            .entry(station.to_string())
+                            .or_insert_with(Statistic::new);
+
+                        statistic.add(value);
+                    }
+                }
+            }
+
+            local_map
+        })
+        .collect();
+
+    // Merge all local maps
+    let mut hash_map: HashMap<String, Statistic> = HashMap::new();
+    for local_map in results {
+        for (station, stats) in local_map {
+            hash_map
+                .entry(station)
+                .and_modify(|existing| existing.merge(&stats))
+                .or_insert(stats);
         }
     }
 
