@@ -1,0 +1,22 @@
+[[bin]]
+name = "generate"
+path = "src/generate.rs"
+
+[[bin]]
+name = "challenge"
+path = "src/challenge.rs"
+
+[profile.release]
+opt-level = "z"
+debug = false
+lto = true
+panic = "abort"
+codegen-units = 1 # Can sometimes help with LTO, but increases compile time
+
+[package]
+name = "rust-1b-row-challenge"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rand = { version = "0.9.2", features = ["small_rng"] }
