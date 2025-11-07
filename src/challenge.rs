@@ -1,6 +1,7 @@
+use memmap2::Mmap;
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::str::from_utf8;
 use std::time::Instant;
 
 struct Statistic {
@@ -37,25 +38,30 @@ fn main() {
 
     let filename = "measurements.txt";
     let file = File::open(filename).expect("file not found");
-    let file = BufReader::new(file);
+    let mmap = unsafe { Mmap::map(&file).expect("failed to mmap file") };
 
     let mut hash_map: HashMap<String, Statistic> = HashMap::new();
 
-    for line in file.lines() {
-        let line = line.expect("error reading file");
-        let parts: Vec<&str> = line.split(';').collect();
-        if parts.len() != 2 {
-            continue;
+    let data = &mmap[..];
+    let mut line_start = 0;
+
+    for i in 0..data.len() {
+        if data[i] == b'\n' {
+            let line = &data[line_start..i];
+            line_start = i + 1;
+
+            if let Some(semicolon_pos) = line.iter().position(|&b| b == b';') {
+                let station = from_utf8(&line[..semicolon_pos]).unwrap();
+                let temp_str = from_utf8(&line[semicolon_pos + 1..]).unwrap();
+                let value: f64 = temp_str.parse().unwrap_or(0.0);
+
+                let statistic = hash_map
+                    .entry(station.to_string())
+                    .or_insert_with(Statistic::new);
+
+                statistic.add(value);
+            }
         }
-
-        let station: String = parts[0].to_string(); // owned
-        let value: f64 = parts[1].parse().unwrap_or(0.0);
-
-        let statistic = hash_map
-            .entry(station) // moves ownership into the map
-            .or_insert_with(Statistic::new);
-
-        statistic.add(value);
     }
 
     let mut sorted: Vec<_> = hash_map.into_iter().collect();
@@ -72,5 +78,5 @@ fn main() {
     }
 
     let duration = start.elapsed();
-    println!("Time: {:.2}s", duration.as_secs_f64());
+    println!("Time: {:.3}s", duration.as_millis() as f64 / 1000.0);
 }
