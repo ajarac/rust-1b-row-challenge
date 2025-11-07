@@ -5,30 +5,30 @@ use rayon::prelude::*;
 use rustc_hash::FxHashMap;
 
 struct Statistic {
-    min: f64,
-    sum: f64,
-    max: f64,
+    min: i32,
+    sum: i64,
+    max: i32,
     counter: usize,
 }
 
 impl Statistic {
     pub fn new() -> Self {
         Self {
-            min: 100.0,
-            sum: 0.0,
-            max: -100.0,
+            min: i32::MAX,
+            sum: 0,
+            max: i32::MIN,
             counter: 0,
         }
     }
 
-    pub fn add(&mut self, value: f64) {
+    pub fn add(&mut self, value: i32) {
         if value < self.min {
             self.min = value;
         }
         if value > self.max {
             self.max = value;
         }
-        self.sum += value;
+        self.sum += value as i64;
         self.counter += 1;
     }
 
@@ -37,6 +37,37 @@ impl Statistic {
         self.max = self.max.max(other.max);
         self.sum += other.sum;
         self.counter += other.counter;
+    }
+}
+
+fn parse_temperature(bytes: &[u8]) -> i32 {
+    let mut value = 0i32;
+    let mut negative = false;
+    let mut i = 0;
+
+    if bytes[0] == b'-' {
+        negative = true;
+        i = 1;
+    }
+
+    // Parse digits before decimal
+    while i < bytes.len() && bytes[i] != b'.' {
+        value = value * 10 + (bytes[i] - b'0') as i32;
+        i += 1;
+    }
+
+    // Skip '.'
+    i += 1;
+
+    // Parse single digit after decimal
+    if i < bytes.len() {
+        value = value * 10 + (bytes[i] - b'0') as i32;
+    }
+
+    if negative {
+        -value
+    } else {
+        value
     }
 }
 
@@ -83,8 +114,8 @@ fn main() {
 
                     if let Some(semicolon_pos) = line.iter().position(|&b| b == b';') {
                         let station = std::str::from_utf8(&line[..semicolon_pos]).unwrap();
-                        let temp_str = std::str::from_utf8(&line[semicolon_pos + 1..]).unwrap();
-                        let value: f64 = temp_str.parse().unwrap_or(0.0);
+                        let temp_bytes = &line[semicolon_pos + 1..];
+                        let value = parse_temperature(temp_bytes);
 
                         let statistic = local_map
                             .entry(station.into())
@@ -116,9 +147,9 @@ fn main() {
         println!(
             "{};{:.1}/{:.1}/{:.1}",
             station,
-            stat.min,
-            stat.sum / stat.counter as f64,
-            stat.max
+            stat.min as f64 / 10.0,
+            (stat.sum as f64 / stat.counter as f64) / 10.0,
+            stat.max as f64 / 10.0
         );
     }
 
