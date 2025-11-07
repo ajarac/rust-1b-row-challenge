@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::fs::File;
 use std::time::Instant;
 use memmap2::Mmap;
 use rayon::prelude::*;
+use rustc_hash::FxHashMap;
 
 struct Statistic {
     min: f64,
@@ -50,12 +50,11 @@ fn main() {
     let num_threads = rayon::current_num_threads();
     let chunk_size = mmap.len() / num_threads;
 
-    let results: Vec<HashMap<String, Statistic>> = (0..num_threads)
+    let results: Vec<FxHashMap<Box<str>, Statistic>> = (0..num_threads)
         .into_par_iter()
         .map(|thread_id| {
             let mut start = thread_id * chunk_size;
 
-            // Align to next newline (except for first thread)
             if start != 0 {
                 while start < mmap.len() && mmap[start] != b'\n' {
                     start += 1;
@@ -73,7 +72,7 @@ fn main() {
                 e + 1
             };
 
-            let mut local_map: HashMap<String, Statistic> = HashMap::new();
+            let mut local_map: FxHashMap<Box<str>, Statistic> = FxHashMap::default();
             let data = &mmap[start..end];
             let mut line_start = 0;
 
@@ -88,7 +87,7 @@ fn main() {
                         let value: f64 = temp_str.parse().unwrap_or(0.0);
 
                         let statistic = local_map
-                            .entry(station.to_string())
+                            .entry(station.into())
                             .or_insert_with(Statistic::new);
 
                         statistic.add(value);
@@ -100,8 +99,7 @@ fn main() {
         })
         .collect();
 
-    // Merge all local maps
-    let mut hash_map: HashMap<String, Statistic> = HashMap::new();
+    let mut hash_map: FxHashMap<Box<str>, Statistic> = FxHashMap::default();
     for local_map in results {
         for (station, stats) in local_map {
             hash_map
@@ -112,7 +110,7 @@ fn main() {
     }
 
     let mut sorted: Vec<_> = hash_map.into_iter().collect();
-    sorted.sort_by_key(|a| a.0.clone());
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
     for (station, stat) in sorted {
         println!(
